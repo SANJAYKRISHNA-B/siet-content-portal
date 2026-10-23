@@ -221,6 +221,7 @@ export default function Home() {
     {},
   );
   const [activeArea, setActiveArea] = useState("Home");
+  const [activeSection, setActiveSection] = useState("All sections");
   const [auth, setAuth] = useState({
     email: "",
     password: "",
@@ -266,6 +267,10 @@ export default function Home() {
         role: account.role,
         unit: account.unit,
       });
+      if (account.role === "admin") {
+        setActiveArea("All pages");
+        setActiveSection("All sections");
+      }
       const stored = localStorage.getItem("siet-demo-submissions");
       const all = stored ? (JSON.parse(stored) as Submission[]) : demoSeed;
       setSubmissions(
@@ -288,6 +293,10 @@ export default function Home() {
     if (p) {
       setProfile(p as Profile);
       setForm((v) => ({ ...v, unit: p.unit || v.unit }));
+      if (p.role === "admin") {
+        setActiveArea("All pages");
+        setActiveSection("All sections");
+      }
     }
     const { data, error } = await supabase
       .from("submissions")
@@ -602,9 +611,45 @@ export default function Home() {
     setProfile(null);
     setSessionUser(null);
   }
+  function selectArea(area: string) {
+    const firstItem = categories[area]?.[0] || "";
+    setActiveArea(area);
+    setActiveSection(isAdmin ? "All sections" : firstItem);
+    setForm((value) => ({ ...value, category: area, item: firstItem }));
+  }
+
+  function selectSection(area: string, item: string) {
+    setActiveArea(area);
+    setActiveSection(item);
+    setForm((value) => ({ ...value, category: area, item }));
+    if (!isAdmin) {
+      requestAnimationFrame(() =>
+        document
+          .getElementById("submission-form")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    }
+  }
+
+  function showAllContent() {
+    setActiveArea("All pages");
+    setActiveSection("All sections");
+    setFilter("All");
+  }
+
   const visible = useMemo(
-    () => submissions.filter((s) => filter === "All" || s.status === filter),
-    [submissions, filter],
+    () =>
+      submissions.filter((s) => {
+        const statusMatches = filter === "All" || s.status === filter;
+        const areaMatches =
+          activeArea === "All pages" ||
+          s.category.startsWith(`${activeArea} —`);
+        const sectionMatches =
+          activeSection === "All sections" ||
+          s.category === `${activeArea} — ${activeSection}`;
+        return statusMatches && areaMatches && sectionMatches;
+      }),
+    [submissions, filter, activeArea, activeSection],
   );
 
   if (!sessionUser)
@@ -821,20 +866,21 @@ export default function Home() {
           </span>
         </div>
         <div className="side-label">WEBSITE PAGES</div>
+        <button
+          type="button"
+          className={`nav-item nav-all ${activeArea === "All pages" ? "active" : ""}`}
+          onClick={showAllContent}
+        >
+          <span>All content</span>
+          <b>{submissions.length}</b>
+        </button>
         <nav className="website-nav" aria-label="SIET website page structure">
           {Object.entries(categories).map(([area, items]) => (
             <div className="website-nav-group" key={area}>
               <button
                 type="button"
                 className={`nav-item ${activeArea === area ? "active" : ""}`}
-                onClick={() => {
-                  setActiveArea(area);
-                  setForm((value) => ({
-                    ...value,
-                    category: area,
-                    item: items[0],
-                  }));
-                }}
+                onClick={() => selectArea(area)}
               >
                 <span>{area}</span>
                 <b>{items.length}</b>
@@ -845,10 +891,8 @@ export default function Home() {
                     <button
                       type="button"
                       key={item}
-                      className={form.item === item ? "selected" : ""}
-                      onClick={() =>
-                        setForm((value) => ({ ...value, category: area, item }))
-                      }
+                      className={activeSection === item ? "selected" : ""}
+                      onClick={() => selectSection(area, item)}
                     >
                       {item}
                     </button>
@@ -858,6 +902,22 @@ export default function Home() {
             </div>
           ))}
         </nav>
+        <label className="mobile-section-select">
+          Section
+          <select
+            value={activeSection}
+            onChange={(event) =>
+              event.target.value === "All sections"
+                ? setActiveSection("All sections")
+                : selectSection(activeArea, event.target.value)
+            }
+          >
+            {isAdmin && <option>All sections</option>}
+            {(categories[activeArea] || []).map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
         <div className="sidebar-bottom">
           <div className="avatar">
             {profile.full_name?.slice(0, 1)?.toUpperCase() || "M"}
@@ -866,8 +926,13 @@ export default function Home() {
             <strong>{profile.full_name || sessionUser.email}</strong>
             <span>{isAdmin ? "Administrator" : "Content coordinator"}</span>
           </div>
-          <button className="logout" onClick={signOut}>
-            ↗
+          <button
+            className="logout"
+            onClick={signOut}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            Sign out
           </button>
         </div>
       </aside>
@@ -881,6 +946,20 @@ export default function Home() {
             </h1>
           </div>
           <div className="top-actions">
+            <button
+              type="button"
+              className="header-action"
+              onClick={
+                isAdmin
+                  ? showAllContent
+                  : () =>
+                      document
+                        .getElementById("submission-form")
+                        ?.scrollIntoView({ behavior: "smooth" })
+              }
+            >
+              {isAdmin ? "View all content" : "+ New submission"}
+            </button>
             <span className={`role-pill ${isAdmin ? "admin-pill" : ""}`}>
               {isAdmin ? "Administrator" : "Member"}
             </span>
@@ -911,16 +990,22 @@ export default function Home() {
               label="Total submissions"
               value={submissions.length}
               note="All accessible records"
+              active={filter === "All"}
+              onClick={() => setFilter("All")}
             />
             <Stat
               label="Pending review"
               value={submissions.filter((s) => s.status === "Pending").length}
               note="Awaiting admin action"
+              active={filter === "Pending"}
+              onClick={() => setFilter("Pending")}
             />
             <Stat
               label="Approved"
               value={submissions.filter((s) => s.status === "Approved").length}
               note="Ready for website update"
+              active={filter === "Approved"}
+              onClick={() => setFilter("Approved")}
             />
             <Stat
               label="Needs correction"
@@ -929,10 +1014,12 @@ export default function Home() {
                   .length
               }
               note="Follow-up required"
+              active={filter === "Needs Correction"}
+              onClick={() => setFilter("Needs Correction")}
             />
           </div>
           {!isAdmin && (
-            <section className="panel">
+            <section className="panel" id="submission-form">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">NEW CONTENT</p>
@@ -953,6 +1040,7 @@ export default function Home() {
                       onChange={(e) => {
                         const c = e.target.value;
                         setActiveArea(c);
+                        setActiveSection(categories[c][0]);
                         setForm({
                           ...form,
                           category: c,
@@ -969,9 +1057,10 @@ export default function Home() {
                     Content type *
                     <select
                       value={form.item}
-                      onChange={(e) =>
-                        setForm({ ...form, item: e.target.value })
-                      }
+                      onChange={(e) => {
+                        setActiveSection(e.target.value);
+                        setForm({ ...form, item: e.target.value });
+                      }}
                     >
                       {categories[form.category].map((c) => (
                         <option key={c}>{c}</option>
@@ -1095,21 +1184,38 @@ export default function Home() {
             <div className="panel-heading list-heading">
               <div>
                 <p className="eyebrow">CONTENT REGISTER</p>
-                <h2>{isAdmin ? "All submissions" : "Your submissions"}</h2>
+                <h2>{isAdmin ? "Submission review" : "Your submissions"}</h2>
                 <p className="muted">
-                  Track progress, review feedback, and submission status.
+                  Showing{" "}
+                  {activeArea === "All pages"
+                    ? "all website pages"
+                    : activeArea}
+                  {activeSection !== "All sections"
+                    ? ` / ${activeSection}`
+                    : ""}
+                  .
                 </p>
               </div>
-              <select
-                className="filter-select"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              >
-                <option>All</option>
-                <option>Pending</option>
-                <option>Approved</option>
-                <option>Needs Correction</option>
-              </select>
+              <div className="register-actions">
+                <select
+                  className="filter-select"
+                  aria-label="Filter submissions by status"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                >
+                  <option>All</option>
+                  <option>Pending</option>
+                  <option>Approved</option>
+                  <option>Needs Correction</option>
+                </select>
+                <button
+                  type="button"
+                  className="clear-filter"
+                  onClick={showAllContent}
+                >
+                  Reset filters
+                </button>
+              </div>
             </div>
             {visible.length === 0 ? (
               <div className="empty-state">
@@ -1260,16 +1366,25 @@ function Stat({
   label,
   value,
   note,
+  active,
+  onClick,
 }: {
   label: string;
   value: number;
   note: string;
+  active: boolean;
+  onClick: () => void;
 }) {
   return (
-    <div className="stat-card">
+    <button
+      type="button"
+      className={`stat-card ${active ? "active" : ""}`}
+      onClick={onClick}
+      aria-pressed={active}
+    >
       <span>{label}</span>
       <strong>{value.toString().padStart(2, "0")}</strong>
       <small>{note}</small>
-    </div>
+    </button>
   );
 }
